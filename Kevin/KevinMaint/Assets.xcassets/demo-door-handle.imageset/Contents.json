@@ -1,0 +1,13 @@
+{
+  "images" : [
+    {
+      "filename" : "demo-door-handle.jpg",
+      "idiom" : "universal",
+      "scale" : "1x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

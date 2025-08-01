@@ -1,0 +1,14 @@
+{
+  "name": "kevin-maint-demo-data",
+  "version": "1.0.0",
+  "description": "Demo data population script for Kevin Maint App Store review",
+  "main": "populate_demo_data.js",
+  "scripts": {
+    "populate": "node populate_demo_data.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  },
+  "author": "Kevin Maint Team",
+  "license": "MIT"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "kevinmaint-firestore-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  },
+  "scripts": {
+    "backup": "node backup_firestore.js",
+    "delete": "node delete_all_collections.js",
+    "migrate": "node migrate_to_v2.js"
+  }
+}

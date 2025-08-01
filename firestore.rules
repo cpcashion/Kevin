@@ -1,0 +1,302 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is Kevin admin
+    function isKevinAdmin() {
+      return request.auth != null && 
+             request.auth.token.email in [
+               'chriscashion@gmail.com',
+               'chris.cashion@gmail.com', 
+               'kevind.cashion@gmail.com'
+             ];
+    }
+
+    // Helper function to check if user owns a specific restaurant
+    function isRestaurantOwner(restaurantId) {
+      return request.auth != null && 
+             request.auth.uid == get(/databases/$(database)/documents/restaurants/$(restaurantId)).data.ownerId;
+    }
+
+    // Helper function to check if user owns the restaurant associated with an issue
+    function isRestaurantOwnerByIssue(issueId) {
+      let issue = get(/databases/$(database)/documents/issues/$(issueId));
+      return request.auth != null && 
+             request.auth.uid == get(/databases/$(database)/documents/restaurants/$(issue.data.restaurantId)).data.ownerId;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isKevinAdmin();
+      // Allow FCM token updates
+      allow update: if request.auth != null && 
+        request.writeFields.hasOnly(['fcmToken', 'tokenUpdatedAt']);
+    }
+    
+    // Allow querying users collection for admin email lookup
+    match /users/{document=**} {
+      allow read: if request.auth != null;
+    }
+
+    // Restaurants collection
+    match /restaurants/{restaurantId} {
+      // Allow all authenticated users to read restaurants (needed for location detection)
+      allow read: if request.auth != null;
+      // Only owners and Kevin admins can write
+      allow write: if request.auth != null && 
+        (request.auth.uid == resource.data.ownerId || isKevinAdmin());
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.ownerId;
+    }
+
+    // Issues collection
+    match /issues/{issueId} {
+      // Allow all authenticated users to read issues (smart location detection context)
+      allow read: if request.auth != null;
+      // Allow issue reporters, Kevin admins, or restaurant owners to update issues
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.reporterId || 
+         isKevinAdmin() ||
+         true); // Temporary: Allow all authenticated users to update issues
+      // Allow any authenticated user to create issues (location detection determines restaurant)
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.reporterId;
+      // Allow delete for issue reporters and Kevin admins (needed for permission tests and cleanup)
+      allow delete: if request.auth != null && 
+        (request.auth.uid == resource.data.reporterId || 
+         isKevinAdmin() ||
+         true); // Temporary: Allow all authenticated users to delete for testing
+    }
+
+    // Maintenance requests collection (same as issues)
+    match /maintenance_requests/{requestId} {
+      // Allow all authenticated users to read and list maintenance requests
+      allow read, list: if request.auth != null;
+      // Allow request reporters, Kevin admins to update requests
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.reporterId || 
+         isKevinAdmin() ||
+         true); // Temporary: Allow all authenticated users to update requests
+      // Allow any authenticated user to create requests
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.reporterId;
+      
+      // Photos subcollection
+      match /photos/{photoId} {
+        allow read, write: if request.auth != null;
+      }
+      
+      // Thread messages subcollection
+      match /thread_messages/{messageId} {
+        // Allow all authenticated users to read thread messages
+        allow read, list: if request.auth != null;
+        // Allow authenticated users to create messages (including AI messages)
+        allow create: if request.auth != null && 
+          (request.auth.uid == request.resource.data.authorId || 
+           request.resource.data.authorId == "ai");
+        // Allow message author or Kevin admins to update/delete
+        allow update, delete: if request.auth != null && 
+          (request.auth.uid == resource.data.authorId || 
+           resource.data.authorId == "ai" || 
+           isKevinAdmin());
+      }
+      
+      // Thread cache subcollection (for smart summaries)
+      match /thread_cache/{cacheId} {
+        // Allow all authenticated users to read cache
+        allow read: if request.auth != null;
+        // Allow authenticated users to create/update cache
+        allow create, update: if request.auth != null;
+      }
+      
+      // Updates subcollection (for status updates)
+      match /updates/{updateId} {
+        // Allow all authenticated users to read and write updates
+        allow read, write: if request.auth != null;
+        // Allow authenticated users to create updates
+        allow create: if request.auth != null;
+      }
+      
+      // Typing indicators subcollection - for real-time typing status
+      match /typing_indicators/{userId} {
+        // Allow all authenticated users to read/write typing indicators
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // Work orders collection
+    match /workOrders/{workOrderId} {
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == resource.data.reporterId || 
+         isKevinAdmin() ||
+         true); // Temporary: Allow all authenticated users
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.reporterId;
+      
+      // AI Context subcollection - for AI assistant context storage
+      match /aiContext/{contextId} {
+        // Allow all authenticated users to read/write AI context
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // Locations collection
+    match /locations/{locationId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Conversations collection
+    match /conversations/{conversationId} {
+      // Allow authenticated users to read conversations (needed for queries)
+      allow read: if request.auth != null;
+      // Allow authenticated users to create conversations
+      allow create: if request.auth != null;
+      // Allow write if user is participant or admin
+      allow update, delete: if request.auth != null;
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        // Allow authenticated users to read messages (timeline context)
+        allow read: if request.auth != null;
+        // Allow authenticated users to create messages
+        allow create: if request.auth != null;
+        // Allow authenticated users to update messages
+        allow update: if request.auth != null;
+        // Allow authenticated users to delete messages
+        allow delete: if request.auth != null;
+      }
+    }
+
+    // Notification triggers - only authenticated users can create, only Cloud Functions can read/update
+    match /notificationTriggers/{triggerId} {
+      allow create: if request.auth != null;
+      allow read, update: if false; // Only Cloud Functions should access these
+    }
+
+    // Issue photos collection
+    match /issuePhotos/{photoId} {
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.uploaderId || 
+         isKevinAdmin() ||
+         true); // Temporary: Allow all authenticated users
+      allow update, delete: if request.auth != null && 
+        (request.auth.uid == resource.data.uploaderId || 
+         isKevinAdmin() ||
+         true); // Temporary: Allow all authenticated users
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.uploaderId;
+    }
+
+    // Work logs collection
+    match /workLogs/{logId} {
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == resource.data.authorId || 
+         isKevinAdmin() ||
+         true); // Temporary: Allow all authenticated users
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.authorId;
+    }
+
+    // Quotes collection
+    match /quotes/{quoteId} {
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == resource.data.createdBy || isKevinAdmin());
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.createdBy;
+    }
+
+    // Storage for images
+    match /images/{imageId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Receipts collection
+    match /receipts/{receiptId} {
+      // Allow all authenticated users to read receipts (needed for issue timeline context)
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.submittedBy;
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.submittedBy || 
+         isKevinAdmin());
+    }
+
+    // Subscriptions collection
+    match /subscriptions/{subscriptionId} {
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == get(/databases/$(database)/documents/restaurants/$(resource.data.restaurantId)).data.ownerId || 
+         isKevinAdmin());
+      allow create: if request.auth != null && 
+        request.auth.uid == get(/databases/$(database)/documents/restaurants/$(request.resource.data.restaurantId)).data.ownerId;
+    }
+
+    // Payments collection
+    match /payments/{paymentId} {
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == get(/databases/$(database)/documents/restaurants/$(resource.data.restaurantId)).data.ownerId || 
+         isKevinAdmin());
+      allow create: if request.auth != null && 
+        request.auth.uid == get(/databases/$(database)/documents/restaurants/$(request.resource.data.restaurantId)).data.ownerId;
+    }
+
+    // Debug logs collection - for TestFlight debugging
+    match /debug_logs/{logId} {
+      allow create: if request.auth != null;
+      allow read: if isKevinAdmin(); // Only Kevin team can read debug logs
+    }
+
+    // Error reports collection - for TestFlight debugging
+    match /error_reports/{reportId} {
+      allow create: if request.auth != null;
+      allow read: if isKevinAdmin(); // Only Kevin team can read error reports
+    }
+
+    // Bug reports collection - for user feedback
+    match /bug_reports/{reportId} {
+      allow create: if request.auth != null;
+      allow read: if isKevinAdmin(); // Only Kevin team can read bug reports
+    }
+
+    // Documents collection - for universal document uploads (invoices, receipts, quotes, etc.)
+    match /documents/{documentId} {
+      // Allow all authenticated users to read documents
+      allow read: if request.auth != null;
+      // Allow document uploader or Kevin admins to create/update/delete
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.uploaded_by;
+      allow update, delete: if request.auth != null && 
+        (request.auth.uid == resource.data.uploaded_by || 
+         isKevinAdmin());
+    }
+
+    // Waitlist collection - for service expansion tracking
+    match /waitlist/{waitlistId} {
+      // Allow any authenticated user to create waitlist entries
+      allow create: if request.auth != null;
+      // Only Kevin admins can read/update waitlist entries
+      allow read, update: if isKevinAdmin();
+    }
+
+    // Support messages collection - for user support requests
+    match /supportMessages/{messageId} {
+      // Allow users to create support messages
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.userId;
+      // Allow users to read their own messages
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.userId || isKevinAdmin());
+      // Only Kevin admins can update support messages (status, notes, etc.)
+      allow update: if isKevinAdmin();
+      // Only Kevin admins can list all support messages
+      allow list: if isKevinAdmin();
+    }
+
+    // Invoices collection - for billing and payment tracking
+    match /invoices/{invoiceId} {
+      // Allow authenticated users to create invoices (Kevin admins creating invoices for businesses)
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.createdBy;
+      // Allow all authenticated users to read invoices (for now - can tighten later)
+      allow read: if request.auth != null;
+      // Allow invoice creator and Kevin admins to update invoices
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.createdBy || isKevinAdmin());
+      // Allow invoice creator and Kevin admins to delete invoices
+      allow delete: if request.auth != null && 
+        (request.auth.uid == resource.data.createdBy || isKevinAdmin());
+    }
+  }
+}

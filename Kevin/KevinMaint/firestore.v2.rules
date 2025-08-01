@@ -1,0 +1,156 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ========= Helpers =========
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isKevinAdmin() {
+      return request.auth != null && request.auth.token.email in [
+        'chriscashion@gmail.com',
+        'chris.cashion@gmail.com',
+        'kevind.cashion@gmail.com'
+      ];
+    }
+
+    function isBusinessOwner(businessId) {
+      return exists(/databases/$(database)/documents/businesses/$(businessId)) &&
+             get(/databases/$(database)/documents/businesses/$(businessId)).data.ownerId == request.auth.uid;
+    }
+
+    function canAccessBusiness(businessId) {
+      return isKevinAdmin() || isBusinessOwner(businessId);
+    }
+
+    // ========= Core Collections =========
+
+    // Businesses (single source of truth for orgs)
+    match /businesses/{businessId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && (isBusinessOwner(businessId) || isKevinAdmin());
+
+      // Locations subcollection
+      match /locations/{locationId} {
+        allow read: if isAuthenticated();
+        allow create, update, delete: if isAuthenticated() && (isBusinessOwner(businessId) || isKevinAdmin());
+      }
+    }
+
+    // Unified maintenance requests (replaces issues/workOrders)
+    match /maintenance_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        // Participants
+        request.auth.uid in resource.data.participantIds ||
+        // Reporter or assignee
+        request.auth.uid == resource.data.reporterId ||
+        request.auth.uid == resource.data.assigneeId ||
+        // Business owner or Kevin admin
+        canAccessBusiness(resource.data.businessId)
+      );
+
+      allow create: if isAuthenticated() && (
+        request.auth.uid == request.resource.data.reporterId
+      );
+
+      allow update, delete: if isAuthenticated() && (
+        request.auth.uid == resource.data.reporterId ||
+        request.auth.uid == resource.data.assigneeId ||
+        canAccessBusiness(resource.data.businessId)
+      );
+
+      // Photos subcollection
+      match /photos/{photoId} {
+        allow read: if isAuthenticated();
+        allow create, update, delete: if isAuthenticated();
+      }
+
+      // Updates (work logs) subcollection
+      match /updates/{updateId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update, delete: if false; // immutable entries
+      }
+
+      // Messages subcollection (optional, if embedded)
+      match /messages/{messageId} {
+        allow read, create: if isAuthenticated();
+        allow update, delete: if false;
+      }
+    }
+
+    // ========= Legacy Compatibility (Temporary) =========
+    // Keep the current app working while we cut over to v2 data model
+    // These will be removed once migration is complete.
+    match /issues/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /workOrders/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /workLogs/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /issuePhotos/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /restaurants/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /locations/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Receipts
+    match /receipts/{receiptId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated();
+    }
+
+    // Quotes
+    match /quotes/{quoteId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated();
+    }
+
+    // Conversations (global) - SIMPLIFIED FOR DEBUGGING
+    match /conversations/{conversationId} {
+      allow read, list: if isAuthenticated();
+      allow create, write: if isAuthenticated();
+      allow update, delete: if isAuthenticated();
+
+      match /messages/{messageId} {
+        allow read, list: if isAuthenticated();
+        allow create, write: if isAuthenticated();
+        allow update, delete: if isAuthenticated();
+      }
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      allow read: if isAuthenticated() && isKevinAdmin();
+      allow list: if isAuthenticated(); // Allow all authenticated users to query for notifications
+    }
+    
+    // Debug logs
+    match /debug_logs/{logId} {
+      allow read: if isAuthenticated() && isKevinAdmin();
+      allow write: if isAuthenticated();
+    }
+    
+    // Documents collection
+    match /documents/{documentId} {
+      allow read, list: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Notification triggers - system can write, admins can read
+    match /notificationTriggers/{triggerId} {
+      allow read: if isAuthenticated() && isKevinAdmin();
+      allow write: if isAuthenticated();
+    }
+  }
+}
