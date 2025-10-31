@@ -2,6 +2,8 @@
 
 Kevin is an iOS app designed to streamline maintenance management for restaurants and hospitality businesses. It provides a comprehensive platform for reporting issues, managing work orders, tracking progress, and handling invoicing.
 
+<img width="360" height="360" alt="kevin-ai-wordmark-dark" src="https://github.com/user-attachments/assets/74907558-eebb-4c4c-8961-7fc9ee66a183" />
+
 ## Features
 
 ### 🔧 Issue Management
